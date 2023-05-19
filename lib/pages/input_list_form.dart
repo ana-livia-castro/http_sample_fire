@@ -1,27 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:http_sample_fire/components/message_dialog_widget.dart';
-
-class Person {
-  late String key;
-  late String name;
-  late int age;
-
-  Person(this.name, this.age, this.key);
-
-  Person.fromMap(Map<String, dynamic> map)
-      : key = map['key'],
-        name = map['name'],
-        age = map['age'];
-
-  Map<String, dynamic> toMap() {
-    return {
-      'key': key,
-      'name': name,
-      'age': age,
-    };
-  }
-}
+import '../model/person.dart';
 
 class InputListForm extends StatefulWidget {
   const InputListForm({Key? key, required this.title}) : super(key: key);
@@ -38,7 +18,6 @@ class _InputListFormState extends State<InputListForm> {
   late String messageBody;
   late String messageAction;
   bool isError = false;
-  late Person selectedPerson;
 
   @override
   Widget build(BuildContext context) {
@@ -102,12 +81,8 @@ class _InputListFormState extends State<InputListForm> {
                       showMessageDialog();
                       return;
                     }
-                    final person = Person(nameController.text, age, '');
-                    if (selectedPerson.key.isEmpty) {
-                      await createPerson(person);
-                    } else {
-                      await updatePerson(person);
-                    }
+                    final person = Person(nameController.text, age, '_');
+                    await createPerson(person);
                     setState(() {});
                     nameController.clear();
                     ageController.clear();
@@ -126,15 +101,19 @@ class _InputListFormState extends State<InputListForm> {
   }
 
   Future<void> createPerson(Person person) async {
+    messageAction = "Fechar";
+    messageTitle = "Cadastro";
+    if (nameController.text.isEmpty) return;
+    if (ageController.text.isEmpty) return;
+
     FirebaseFirestore.instance.collection("person").add({
       "name": person.name,
       "age": person.age,
     }).then((value) {
       final id = value.id;
-      FirebaseFirestore.instance
-          .collection("person")
-          .doc(id)
-          .update({"key": id}).then((_) {
+      FirebaseFirestore.instance.collection("person").doc(id).update({
+        "key": id,
+      }).then((_) {
         isError = false;
         messageBody = "Cadastro efetuado com sucesso";
         showMessageDialog();
@@ -146,21 +125,6 @@ class _InputListFormState extends State<InputListForm> {
     }).catchError((_) {
       isError = true;
       messageBody = "Erro no servidor, verificar dados informados";
-      showMessageDialog();
-    });
-  }
-
-  Future<void> updatePerson(Person person) async {
-    FirebaseFirestore.instance.collection('person').doc(person.key).update({
-      "name": person.name,
-      "age": person.age,
-    }).then((_) {
-      isError = false;
-      messageBody = "Registro atualizado com sucesso";
-      showMessageDialog();
-    }).catchError((_) {
-      isError = true;
-      messageBody = "Erro ao atualizar o registro";
       showMessageDialog();
     });
   }
@@ -178,9 +142,8 @@ class _InputListFormState extends State<InputListForm> {
           shrinkWrap: true,
           itemCount: snapshot.data!.docs.length,
           itemBuilder: (context, index) {
-            final data =
-                snapshot.data!.docs[index].data() as Map<String, dynamic>;
-            final person = Person.fromMap(data);
+            dynamic data;
+            data = snapshot.data!.docs[index].data();
             return Padding(
               padding: const EdgeInsets.all(12.0),
               child: Container(
@@ -196,18 +159,69 @@ class _InputListFormState extends State<InputListForm> {
                   ],
                 ),
                 child: ListTile(
+                  key: ValueKey(data['key']),
                   leading: const Icon(Icons.person),
-                  title: Text(person.name),
-                  subtitle: Text(person.age.toString()),
+                  title: Text(data['name']!),
+                  subtitle: Text(data['age']!.toString()),
                   onTap: () {
-                    setState(() {
-                      selectedPerson = person;
-                      nameController.text = person.name;
-                      ageController.text = person.age.toString();
-                    });
-                  },
-                  onLongPress: () {
-                    deleteRecord(snapshot.data!.docs[index].id);
+                    showDialog(
+                      context: context,
+                      builder: (context) {
+                        final nameEditingController =
+                            TextEditingController(text: data['name']);
+                        final ageEditingController =
+                            TextEditingController(text: data['age'].toString());
+
+                        return AlertDialog(
+                          title: const Text('Editar Dados'),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextFormField(
+                                controller: nameEditingController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nome',
+                                  hintText: 'Nome',
+                                ),
+                              ),
+                              TextFormField(
+                                controller: ageEditingController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Idade',
+                                  hintText: 'Idade',
+                                ),
+                              ),
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                              },
+                              child: const Text('Cancelar'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                final newName = nameEditingController.text;
+                                final newAge =
+                                    int.tryParse(ageEditingController.text) ??
+                                        0;
+                                if (newName.isNotEmpty && newAge != 0) {
+                                  updateRecord(data['key'], newName, newAge);
+                                  Navigator.pop(context);
+                                }
+                              },
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.save),
+                                  Text('Salvar'),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    );
                   },
                 ),
               ),
@@ -232,22 +246,21 @@ class _InputListFormState extends State<InputListForm> {
     );
   }
 
-  void deleteRecord(String key) {
-    FirebaseFirestore.instance
-        .collection('person')
-        .doc(key)
-        .delete()
-        .then((value) {
+  void updateRecord(String key, String newName, int newAge) {
+    FirebaseFirestore.instance.collection('person').doc(key).update({
+      'name': newName,
+      'age': newAge,
+    }).then((value) {
       isError = false;
-      messageAction = "Fechar";
-      messageBody = "Registro deletado com sucesso";
-      messageTitle = "Manutenção de Registro";
+      messageAction = 'Fechar';
+      messageBody = 'Registro atualizado com sucesso';
+      messageTitle = 'Manutenção de Registro';
       showMessageDialog();
-    }).catchError((e) {
+    }).catchError((error) {
       isError = true;
-      messageAction = "Fechar";
-      messageBody = "Erro ao excluir registro";
-      messageTitle = "Manutenção de Registro";
+      messageAction = 'Fechar';
+      messageBody = 'Erro ao atualizar o registro';
+      messageTitle = 'Manutenção de Registro';
       showMessageDialog();
     });
   }

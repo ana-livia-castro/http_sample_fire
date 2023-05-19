@@ -1,7 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:http_sample_fire/components/message_dialog_widget.dart';
-import '../model/person.dart';
+
+class Person {
+  late String key;
+  late String name;
+  late int age;
+
+  Person(this.name, this.age, this.key);
+
+  Person.fromMap(Map<String, dynamic> map)
+      : key = map['key'],
+        name = map['name'],
+        age = map['age'];
+
+  Map<String, dynamic> toMap() {
+    return {
+      'key': key,
+      'name': name,
+      'age': age,
+    };
+  }
+}
 
 class InputListForm extends StatefulWidget {
   const InputListForm({Key? key, required this.title}) : super(key: key);
@@ -18,6 +38,7 @@ class _InputListFormState extends State<InputListForm> {
   late String messageBody;
   late String messageAction;
   bool isError = false;
+  late Person selectedPerson;
 
   @override
   Widget build(BuildContext context) {
@@ -81,8 +102,12 @@ class _InputListFormState extends State<InputListForm> {
                       showMessageDialog();
                       return;
                     }
-                    final person = Person(nameController.text, age, '_');
-                    await createPerson(person);
+                    final person = Person(nameController.text, age, '');
+                    if (selectedPerson.key.isEmpty) {
+                      await createPerson(person);
+                    } else {
+                      await updatePerson(person);
+                    }
                     setState(() {});
                     nameController.clear();
                     ageController.clear();
@@ -101,19 +126,15 @@ class _InputListFormState extends State<InputListForm> {
   }
 
   Future<void> createPerson(Person person) async {
-    messageAction = "Fechar";
-    messageTitle = "Cadastro";
-    if (nameController.text.isEmpty) return;
-    if (ageController.text.isEmpty) return;
-
     FirebaseFirestore.instance.collection("person").add({
       "name": person.name,
       "age": person.age,
     }).then((value) {
       final id = value.id;
-      FirebaseFirestore.instance.collection("person").doc(id).update({
-        "key": id,
-      }).then((_) {
+      FirebaseFirestore.instance
+          .collection("person")
+          .doc(id)
+          .update({"key": id}).then((_) {
         isError = false;
         messageBody = "Cadastro efetuado com sucesso";
         showMessageDialog();
@@ -121,11 +142,26 @@ class _InputListFormState extends State<InputListForm> {
         isError = true;
         messageBody = "Erro ao efetuar o cadastro";
         showMessageDialog();
-      }).catchError((_) {
-        isError = true;
-        messageBody = "Erro no servidor, verificar dados informados";
-        showMessageDialog();
       });
+    }).catchError((_) {
+      isError = true;
+      messageBody = "Erro no servidor, verificar dados informados";
+      showMessageDialog();
+    });
+  }
+
+  Future<void> updatePerson(Person person) async {
+    FirebaseFirestore.instance.collection('person').doc(person.key).update({
+      "name": person.name,
+      "age": person.age,
+    }).then((_) {
+      isError = false;
+      messageBody = "Registro atualizado com sucesso";
+      showMessageDialog();
+    }).catchError((_) {
+      isError = true;
+      messageBody = "Erro ao atualizar o registro";
+      showMessageDialog();
     });
   }
 
@@ -142,13 +178,14 @@ class _InputListFormState extends State<InputListForm> {
           shrinkWrap: true,
           itemCount: snapshot.data!.docs.length,
           itemBuilder: (context, index) {
-            dynamic data;
-            data = snapshot.data!.docs[index].data();
+            final data =
+                snapshot.data!.docs[index].data() as Map<String, dynamic>;
+            final person = Person.fromMap(data);
             return Padding(
               padding: const EdgeInsets.all(12.0),
               child: Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.purple),
+                  border: Border.all(color: Colors.green),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey[200]!,
@@ -159,84 +196,18 @@ class _InputListFormState extends State<InputListForm> {
                   ],
                 ),
                 child: ListTile(
-                  key: ValueKey(data['key']),
                   leading: const Icon(Icons.person),
-                  title: Text(data['name']!),
-                  subtitle: Text(data['age']!.toString()),
+                  title: Text(person.name),
+                  subtitle: Text(person.age.toString()),
                   onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          title: const Text('Editar Dados'),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              TextFormField(
-                                initialValue: data['name'],
-                                decoration: const InputDecoration(
-                                  labelText: 'Nome',
-                                  hintText: 'Nome',
-                                ),
-                              ),
-                              TextFormField(
-                                initialValue: data['age'].toString(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Idade',
-                                  hintText: 'Idade',
-                                ),
-                              ),
-                            ],
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                              },
-                              child: const Text('Cancelar'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                // Aqui você pode atualizar os dados no Firestore
-                                Navigator.pop(context);
-                              },
-                              child: const Text('Salvar'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) {
-                                    return AlertDialog(
-                                      title: const Text('Confirmar Exclusão'),
-                                      content: const Text(
-                                        'Deseja realmente excluir este registro?',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                          },
-                                          child: const Text('Cancelar'),
-                                        ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                            deleteRecord(data['key']);
-                                          },
-                                          child: const Text('Excluir'),
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                );
-                              },
-                              child: const Text('Excluir'),
-                            ),
-                          ],
-                        );
-                      },
-                    );
+                    setState(() {
+                      selectedPerson = person;
+                      nameController.text = person.name;
+                      ageController.text = person.age.toString();
+                    });
+                  },
+                  onLongPress: () {
+                    deleteRecord(snapshot.data!.docs[index].id);
                   },
                 ),
               ),
@@ -261,7 +232,7 @@ class _InputListFormState extends State<InputListForm> {
     );
   }
 
-  void deleteRecord(key) {
+  void deleteRecord(String key) {
     FirebaseFirestore.instance
         .collection('person')
         .doc(key)

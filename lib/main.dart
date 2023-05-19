@@ -20,7 +20,7 @@ class AppFirebase extends StatelessWidget {
     return MaterialApp(
       title: 'Person - App',
       theme: ThemeData(
-        primarySwatch: Colors.purple,
+        primarySwatch: Colors.green,
       ),
       home: const InputListForm(title: 'Cadastro de Pessoas'),
     );
